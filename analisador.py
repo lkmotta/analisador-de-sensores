@@ -33,7 +33,7 @@ Trecho constante suspeito (dict) (campos do CA2.4):
 # parametros definidos nos criterios de aceitacao
 VARIAVEIS = ("temperatura", "umidade")
 JANELA_AMOSTRAS = 21             # CA1.1
-BARREIRA_QUARTIS = 3             # CA1.1
+BARREIRA_QUARTIS = 2             # CA1.1
 LIMIAR_GRUBBS = 2.58             # CA1.2 (N=21, alfa=0,05)
 MIN_LEITURAS_CONSTANTES = 10     # CA2.2 (configuravel)
 LIMITE_GAP_SEGUNDOS = 15         # CA3.1
@@ -49,23 +49,120 @@ SENSOR_INOPERANTE = "Sensor Inoperante"
 
 
 # HU1 deteccao estatistica de outliers
-def outlier_quartis(janela):
-    """Teste dos Quartis sobre a janela; avalia a ULTIMA amostra (janela[-1]).
-    
-    """
-    raise NotImplementedError("Sprint 3")
+def outlier_quartis(janela, variavel="temperatura"):
+    """Conta os valores fora dos limites e exporta registros quando aplicável."""
+    from funcAux import quicksort
+    if not janela:
+        raise ValueError("A janela precisa conter pelo menos uma amostra.")
+
+    registros = isinstance(janela[0], dict)
+    valores = [
+        float(amostra[variavel]) if registros else float(amostra)
+        for amostra in janela
+    ]
+
+    janela_ordenada = quicksort(valores)
+    q1 = janela_ordenada[len(janela_ordenada) // 4]
+    q3 = janela_ordenada[3 * len(janela_ordenada) // 4]
+    iqr = q3 - q1
+
+    barreira_q1 = q1 - BARREIRA_QUARTIS * iqr
+    barreira_q3 = q3 + BARREIRA_QUARTIS * iqr
+    outliers = [
+        int(valor < barreira_q1 or valor > barreira_q3)
+        for valor in valores
+    ]
+
+    if registros:
+        import csv
+
+        sensor_ids = {amostra.get("sensor_id") for amostra in janela}
+        if len(sensor_ids) != 1 or None in sensor_ids:
+            raise ValueError("Todos os registros precisam ter o mesmo sensor_id.")
+
+        sensor_id = sensor_ids.pop()
+        fieldnames = list(dict.fromkeys(
+            campo for amostra in janela for campo in amostra
+        ))
+        if "outliers" not in fieldnames:
+            fieldnames.append("outliers")
+        with open(f"{sensor_id}_{variavel}_quartis.csv", "w", newline="",
+                  encoding="utf-8") as arquivo:
+            writer = csv.DictWriter(arquivo, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(
+                {**amostra, "outliers": outlier}
+                for amostra, outlier in zip(janela, outliers)
+            )
+
+        quantidade = sum(outliers)
+        print(f"Quantidade de outliers: {quantidade}\nconsiderando {len(janela)} amostras com intervalo dos quantis [{barreira_q1:.2f}, {barreira_q3:.2f}]")
+        return quantidade
+
+    return sum(outliers)
+
+def outlier_grubbs(janela, variavel="temperatura"):
+    """Conta os outliers de Grubbs e exporta os registros quando aplicável."""
+    if not janela:
+        raise ValueError("A janela precisa conter pelo menos uma amostra.")
+
+    registros = isinstance(janela[0], dict)
+    valores = [
+        float(amostra[variavel]) if registros else float(amostra)
+        for amostra in janela
+    ]
+
+    media = sum(valores) / len(valores)
+    desvio_padrao = (sum((x - media) ** 2 for x in valores) / len(valores)) ** 0.5
+    limite_inferior = media - LIMIAR_GRUBBS * desvio_padrao
+    limite_superior = media + LIMIAR_GRUBBS * desvio_padrao
+    if desvio_padrao == 0:
+        outliers = [0] * len(valores)
+    else:
+        outliers = [
+            int(valor < limite_inferior or valor > limite_superior)
+            for valor in valores
+        ]
+
+    quantidade = sum(outliers)
+    if registros:
+        import csv
+
+        sensor_ids = {amostra.get("sensor_id") for amostra in janela}
+        if len(sensor_ids) != 1 or None in sensor_ids:
+            raise ValueError("Todos os registros precisam ter o mesmo sensor_id.")
+
+        sensor_id = sensor_ids.pop()
+        fieldnames = list(dict.fromkeys(
+            campo for amostra in janela for campo in amostra
+        ))
+        if "outliers" not in fieldnames:
+            fieldnames.append("outliers")
+        with open(f"{sensor_id}_{variavel}_grubbs.csv", "w", newline="",
+                  encoding="utf-8") as arquivo:
+            writer = csv.DictWriter(arquivo, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(
+                {**amostra, "outliers": outlier}
+                for amostra, outlier in zip(janela, outliers)
+            )
+
+        print(
+            f"Quantidade de outliers (Grubbs): {quantidade}\n"
+            f"considerando {len(janela)} amostras com intervalo "
+            f"[{limite_inferior:.2f}, {limite_superior:.2f}]"
+        )
+
+    return quantidade
 
 
-def outlier_grubbs(janela):
-    """Teste de Grubbs sobre a janela; avalia a ULTIMA amostra.
-
-    """
-    raise NotImplementedError("Sprint 3")
-
-
-def classificar_estatistica(janela):
-    """"Outlier" se Quartis ou Grubbs sinalizarem; snn "Normal"."""
-    raise NotImplementedError("Sprint 3")
+def classificar_estatistica(janela, variavel="temperatura"):
+    """Classifica o intervalo como Outlier se qualquer teste encontrar algum."""
+    outliers_quartis = outlier_quartis(janela, variavel=variavel)
+    outliers_grubbs = outlier_grubbs(janela, variavel=variavel)
+    if outliers_quartis or outliers_grubbs:
+        return OUTLIER
+    return NORMAL
 
 
 # HU2 periodos constantes suspeitos

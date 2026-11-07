@@ -50,7 +50,7 @@ Como estudante de IoT, quero identificar leituras fora do padrão usando os test
 
 #### Critérios de aceitação
 
-1. **CA1.1:** Usar uma janela de 21 amostras para calcular Q1, Q3 e a amplitude interquartil (Ai = Q3 - Q1). A leitura avaliada recebe `Outlier` se estiver abaixo de Q1 - 3 × Ai ou acima de Q3 + 3 × Ai.
+1. **CA1.1:** No teste dos Quartis, calcular Q1, Q3 e a amplitude interquartil (Ai = Q3 - Q1) a partir de todos os valores da variável analisada. Marcar cada valor abaixo de Q1 - 2 × Ai ou acima de Q3 + 2 × Ai como outlier; a análise não se limita à última amostra.
 2. **CA1.2:** Calcular G = |leitura - média| / desvio padrão na mesma janela. Se G > 2,58, marcar a leitura como `Outlier` pelo teste de Grubbs.
 3. **CA1.3:** Se nenhum dos dois testes apontar problema, classificar a leitura como `Normal`. Ela ainda pode receber suspeita de travamento pela HU2.
 4. **CA1.4:** Se o desvio padrão for zero, o teste de Grubbs não deve dividir por zero nem apontar outlier. As outras análises continuam normalmente.
