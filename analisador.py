@@ -5,6 +5,7 @@ Felipe Kenzo Higashi
 Lucas Henrique Motta
 
 HU1 e HU2: deteccao estatistica e identificacao de possiveis travamentos.
+HU3: identificacao de gaps e preenchimento de leituras ausentes.
 HU4: consolidacao do relatorio de qualidade.
 
 Registro (dict), uma linha do CSV:
@@ -33,7 +34,7 @@ import csv
 import math
 import os
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # parametros definidos nos criterios de aceitacao
@@ -339,24 +340,158 @@ def marcar_suspeitas(registros, min_leituras=MIN_LEITURAS_CONSTANTES):
     return resultado
 
 
-# HU3 gaps e imputacao
+# HU3 identificacao de gaps e preenchimento de leituras ausentes.
+def _horario_hu3(registro):
+    """Pega o horario do registro, mesmo que ele esteja salvo como texto."""
+    nomes_coluna = ("timestamp", "hora", "Carimbo de data/hora")
+
+    for campo in nomes_coluna:
+        valor = registro.get(campo)
+        if isinstance(valor, datetime):
+            return valor
+
+        if isinstance(valor, str) and valor.strip():
+            try:
+                return datetime.fromisoformat(valor)
+            except ValueError:
+                # Alguns arquivos usam dia/mes/ano em vez de ano-mes-dia.
+                try:
+                    return datetime.strptime(valor, "%d/%m/%Y %H:%M:%S")
+                except ValueError:
+                    pass
+
+    return None
+
+
+def _agrupar_hu3(registros):
+    """Separa as leituras por sensor e coloca cada grupo em ordem de horario."""
+    grupos = defaultdict(list)
+
+    for registro in registros:
+        # uma leitura criada pela HU3 nao deve ser contada como original.
+        if registro.get("status") == IMPUTADO:
+            continue
+
+        horario = _horario_hu3(registro)
+        if horario is not None:
+            sensor_id = registro.get("sensor_id")
+            grupos[sensor_id].append((horario, registro))
+
+    for leituras in grupos.values():
+        leituras.sort(key=lambda item: item[0])
+
+    return grupos
+
+
+def _numero_hu3(valor):
+    """Converte a leitura para numero ou devolve None se ela for invalida."""
+    if valor is None or isinstance(valor, bool):
+        return None
+
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+    if not math.isfinite(numero):
+        return None
+    return numero
+
+
 def detectar_gaps(registros, limite_segundos=LIMITE_GAP_SEGUNDOS):
-    """Lista de gaps por sensor
-    (diferenca dos timestamps consecutivos do mesmo sensor > limite).
-    Cada gap: {"sensor_id", "inicio", "fim","duracao_segundos"}.
-    """
-    raise NotImplementedError("Sprint 3")
+    """Lista os intervalos maiores que o permitido entre leituras do sensor."""
+    gaps = []
+    grupos = _agrupar_hu3(registros)
+
+    for sensor_id, leituras in grupos.items():
+        # comecamos na segunda leitura, pois precisamos da anterior.
+        for indice in range(1, len(leituras)):
+            horario_anterior = leituras[indice - 1][0]
+            horario_atual = leituras[indice][0]
+            segundos_passados = (horario_atual - horario_anterior).total_seconds()
+
+            if segundos_passados > limite_segundos:
+                gaps.append({
+                    "sensor_id": sensor_id,
+                    "inicio": horario_anterior.isoformat(sep=" "),
+                    "fim": horario_atual.isoformat(sep=" "),
+                    "duracao_segundos": segundos_passados,
+                })
+
+    return gaps
 
 
 def imputar_ausentes(registros, intervalo_segundos=INTERVALO_PADRAO_SEGUNDOS):
-    """Recompoe leituras ausentes pela media das k=3 leituras anteriores validas.
+    """Preenche gaps de ate 5 leituras usando as 3 ultimas medias disponiveis."""
+    if intervalo_segundos <= 0:
+        raise ValueError("O intervalo precisa ser positivo.")
 
-    Retornaria {"registros": [...originais + imputados...], "alertas": [...]}.
-    - Registros sinteticos recebem status "Imputado".
-    - Mais de 5 falhas consecutivas em um gap: nao imputa e adiciona o alerta
-      {"alerta": "Sensor Inoperante", "sensor_id": ...} (por sensor).
-    """
-    raise NotImplementedError("Sprint 3")
+    # trabalhamos com uma copia para nao modificar os dados recebidos.
+    resultado = copy.deepcopy(list(registros))
+    alertas = []
+    grupos = _agrupar_hu3(registros)
+
+    for sensor_id, leituras in grupos.items():
+        historico = {variavel: [] for variavel in VARIAVEIS}
+        sensor_alertado = False
+
+        for indice, (horario, registro) in enumerate(leituras):
+            if indice > 0:
+                horario_anterior = leituras[indice - 1][0]
+                segundos_passados = (horario - horario_anterior).total_seconds()
+
+                # descontamos 1 porque a leitura do final do intervalo ja existe.
+                quantidade_ausentes = max(
+                    0, math.ceil(segundos_passados / intervalo_segundos) - 1
+                )
+
+                if quantidade_ausentes > MAX_FALHAS_CONSECUTIVAS:
+                    # gaps grandes nao sao preenchidos; o alerta e por sensor.
+                    if not sensor_alertado:
+                        alertas.append({
+                            "alerta": SENSOR_INOPERANTE,
+                            "sensor_id": sensor_id,
+                        })
+                        sensor_alertado = True
+
+                elif segundos_passados > LIMITE_GAP_SEGUNDOS:
+                    for passo in range(1, quantidade_ausentes + 1):
+                        novo_horario = horario_anterior + timedelta(
+                            seconds=passo * intervalo_segundos
+                        )
+
+                        registro_anterior = leituras[indice - 1][1]
+                        modelo = registro.get("modelo", registro_anterior.get("modelo"))
+                        novo_registro = {
+                            "id": f"{sensor_id}@{novo_horario.isoformat()}",
+                            "sensor_id": sensor_id,
+                            "modelo": modelo,
+                            "timestamp": novo_horario.isoformat(sep=" "),
+                            "status": IMPUTADO,
+                        }
+
+                        for variavel in VARIAVEIS:
+                            # [-3:] seleciona ate os tres ultimos valores validos.
+                            ultimos_valores = historico[variavel][-K_MEDIA_MOVEL:]
+                            if ultimos_valores:
+                                media = sum(ultimos_valores) / len(ultimos_valores)
+                            else:
+                                media = None
+
+                            novo_registro[variavel] = media
+                            if media is not None:
+                                # a media criada pode ajudar a preencher a proxima.
+                                historico[variavel].append(media)
+
+                        resultado.append(novo_registro)
+
+            # depois do gap, adicionamos a leitura original ao historico.
+            for variavel in VARIAVEIS:
+                numero = _numero_hu3(registro.get(variavel))
+                if numero is not None:
+                    historico[variavel].append(numero)
+
+    return {"registros": resultado, "alertas": alertas}
 
 
 # HU4 relatorio final

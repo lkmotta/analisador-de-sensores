@@ -139,3 +139,26 @@ A saída serializa os dados em JSON, considerando os registros e eventos no form
 ### Validação dessa implementação
 
 **pendente*
+
+### HU3: implementacao e validacao
+
+As funcoes `detectar_gaps(registros, limite_segundos=15)` e
+`imputar_ausentes(registros, intervalo_segundos=10)` foram implementadas em
+`analisador.py`.
+
+- Gaps sao detectados entre registros originais consecutivos **do mesmo sensor**,
+  quando a diferenca de horario ultrapassa 15 segundos.
+- O preenchimento usa os instantes esperados a cada 10 segundos e a media de
+  ate tres valores validos anteriores por variavel (temperatura e umidade).
+  Os valores validos ja imputados tambem podem entrar na proxima media.
+- Cada registro criado recebe `status = "Imputado"`, `sensor_id`, `modelo`,
+  `timestamp` e um `id` sintetico. Os originais nao sao modificados.
+- Quando ha mais de 5 instantes faltantes no mesmo intervalo, nenhum registro
+  daquele intervalo e criado e o sensor recebe um alerta
+  `{"alerta": "Sensor Inoperante", "sensor_id": ...}`. Outros intervalos e
+  sensores continuam sendo processados.
+- Valores ausentes, textos invalidos, booleanos e infinitos nao entram na media.
+  Se nao houver nenhum valor valido anterior para uma variavel, o valor
+  imputado dessa variavel sera `None`.
+
+Validacao: `python -m unittest -v test_analisador` — 30 testes passaram.
