@@ -1,7 +1,6 @@
-"""Testes essenciais da Sprint 2, ligados aos criterios de aceitacao.
+"""Testes essenciais, ligados aos criterios de aceitacao.
 
 Cobrem as quatro historias, seus fluxos principais e limites relevantes.
-As funcoes ainda sao esqueletos: NotImplementedError e esperado nesta sprint.
 Executar: python -m unittest -v test_analisador
 """
 
@@ -323,11 +322,16 @@ class TestHU4Relatorio(unittest.TestCase):
         """CA4.1/CA4.2/CA4.4: percentual sem duplicacao, contagens e JSON."""
         gap = {"sensor_id": "S1", "inicio": ts(0), "fim": ts(30),
                "duracao_segundos": 30}
+        
         rel = an.gerar_relatorio(self._cenario(), trechos=[trecho()], gaps=[gap])
         self.assertAlmostEqual(rel["registros_sinalizados_percentual"], 50.0)
         self.assertFalse(rel["ausencia_de_dados"])
+        
         esperado = {"total_registros_originais": 10, "registros_suspeita_travamento": 2,
-                    "trechos_suspeitos": 1, "eventos_gap": 1, "Imputado": 4}
+                    "trechos_suspeitos": 1, "eventos_gap": 1, "Imputado": 4,
+                    "Outlier": 4, "Normal": 6, "registros_sinalizados": 5,
+                    "nao_classificados": 0}
+        
         for campo, valor in esperado.items():
             self.assertEqual(rel["contagem"][campo], valor)
         for variavel, outliers, suspeitas, trechos in (
@@ -337,11 +341,12 @@ class TestHU4Relatorio(unittest.TestCase):
                 self.assertEqual((bloco["Outlier"], bloco["Normal"]), (outliers, 10-outliers))
                 self.assertEqual(bloco["registros_suspeita_travamento"], suspeitas)
                 self.assertEqual(bloco["trechos_suspeitos"], trechos)
+                
         self.assertEqual(rel["trechos"], [trecho()])
         self.assertIn("outlier", rel["escopo_percentual"].lower())
         self.assertIn("travamento", rel["escopo_percentual"].lower())
         self.assertIsInstance(rel, dict)
-        self.assertEqual(json.loads(json.dumps(rel)), rel)
+        self.assertEqual(json.loads(json.dumps(rel, allow_nan=False)), rel)
 
     def test_CA4_1_CA4_4_sem_originais(self):
         """CA4.1/CA4.4: sem originais, percentual null e ausencia de dados."""
@@ -350,6 +355,95 @@ class TestHU4Relatorio(unittest.TestCase):
                 rel = json.loads(json.dumps(an.gerar_relatorio(registros)))
                 self.assertIsNone(rel["registros_sinalizados_percentual"])
                 self.assertTrue(rel["ausencia_de_dados"])
+
+    def test_CA4_1_imputados_sinalizados_nao_afetam_estatisticas(self):
+        """CA4.1/CA4.2: anotacoes copiadas para imputados nao entram no calculo."""
+        sintetico = anotado(1, estat_t="Outlier", susp_t=True, susp_u=True)
+        sintetico["status"] = "Imputado"
+        rel = an.gerar_relatorio([anotado(0), sintetico])
+        
+        for resumo in (rel, rel["por_sensor"]["S1"], rel["por_modelo"]["DHT22"]):
+            self.assertEqual(resumo["registros_sinalizados_percentual"], 0.0)
+            self.assertEqual(resumo["contagem"]["Imputado"], 1)
+            self.assertEqual(resumo["contagem"]["registros_sinalizados"], 0)
+            for variavel in an.VARIAVEIS:
+                self.assertEqual(resumo["por_variavel"][variavel]["Outlier"], 0)
+                self.assertEqual(
+                    resumo["por_variavel"][variavel]["registros_suspeita_travamento"], 0)
+
+    def test_CA4_2_ausencia_de_classificacao_nao_significa_normal(self):
+        """CA4.2: originais sem resultado continuam no total, sem inventar Normal."""
+        registros = [reg(0), anotado(1, estat_u=None, susp_t=True)]
+        rel = an.gerar_relatorio(registros)
+        self.assertEqual(rel["contagem"]["total_registros_originais"], 2)
+        self.assertEqual(rel["contagem"]["Normal"], 0)
+        self.assertEqual(rel["contagem"]["nao_classificados"], 2)
+        self.assertEqual(rel["por_variavel"]["temperatura"]["Normal"], 1)
+        self.assertEqual(rel["por_variavel"]["umidade"]["nao_classificados"], 2)
+        self.assertEqual(rel["registros_sinalizados_percentual"], 50.0)
+
+    def test_CA4_3_resumo_modelo_usa_totais_e_identifica_sensores(self):
+        """CA4.3: modelo usa 2/5 originais, sem tirar media dos percentuais."""
+        rel = an.gerar_relatorio(self._cenario_sensores())
+        modelo = rel["por_modelo"]["DHT22"]
+        self.assertEqual(modelo["sensor_ids"], ["S1", "S3"])
+        self.assertEqual(modelo["contagem"]["total_registros_originais"], 5)
+        self.assertEqual(modelo["registros_sinalizados_percentual"], 40.0)
+        self.assertEqual(rel["por_modelo"]["DS18B20"]["sensor_ids"], ["S2"])
+
+    def test_CA4_3_sensores_sem_originais_preservam_eventos(self):
+        """CA4.1/CA4.3: sensor so com evento ou imputado fica com percentual null."""
+        gap = {"sensor_id": "S2", "inicio": ts(0), "fim": ts(30),
+               "duracao_segundos": 30}
+        rel = an.gerar_relatorio([anotado(0, imputado=True)],
+                                 trechos=[trecho(sensor="S3")], gaps=[gap])
+        
+        for sensor in ("S1", "S2", "S3"):
+            self.assertTrue(rel["por_sensor"][sensor]["ausencia_de_dados"])
+            self.assertIsNone(rel["por_sensor"][sensor]["registros_sinalizados_percentual"])
+            
+        self.assertIsNone(rel["por_sensor"]["S2"]["modelo"])
+        self.assertEqual(rel["por_sensor"]["S2"]["gaps"], [gap])
+        self.assertEqual(rel["por_modelo"]["DHT22"]["contagem"]["trechos_suspeitos"], 1)
+        self.assertEqual(json.loads(json.dumps(rel, allow_nan=False)), rel)
+
+    def test_CA4_4_entradas_e_resumos_nao_compartilham_eventos_mutaveis(self):
+        """CA4.4: consultar ou editar a saida nao altera os dados analisados."""
+        registros, trechos = self._cenario(), [trecho()]
+        gaps = [{"sensor_id": "S1", "inicio": ts(0), "fim": ts(30),
+                 "duracao_segundos": 30}]
+        
+        original = copy.deepcopy((registros, trechos, gaps))
+        rel = an.gerar_relatorio(registros, trechos=trechos, gaps=gaps)
+        self.assertEqual((registros, trechos, gaps), original)
+        rel["trechos"][0]["ids_registros"].clear()
+        rel["gaps"][0]["fim"] = "alterado"
+        
+        self.assertEqual((registros, trechos, gaps), original)
+        self.assertEqual(rel["por_sensor"]["S1"]["trechos"], trechos)
+        self.assertEqual(rel["por_modelo"]["DHT22"]["gaps"], gaps)
+
+    def test_CA4_2_integracao_com_trechos_e_marcacoes_da_HU2(self):
+        """CA4.2/CA4.4: consome os trechos reais da HU2 sem reanalisa-los."""
+        registros = serie([25.0] * 10)
+        for registro in registros:
+            registro["status_estatistico"] = dict.fromkeys(an.VARIAVEIS, "Normal")
+        rel = an.gerar_relatorio(an.marcar_suspeitas(registros),
+                                 trechos=an.detectar_trechos_constantes(registros))
+        
+        self.assertEqual(rel["registros_sinalizados_percentual"], 100.0)
+        self.assertEqual(rel["contagem"]["Normal"], 10)
+        self.assertEqual(rel["contagem"]["trechos_suspeitos"], 1)
+        self.assertEqual(rel["trechos"], [trecho()])
+
+    def test_CA4_3_identificacao_invalida_nao_mistura_sensores(self):
+        """CA4.3: rejeita ID ausente e modelos conflitantes para o mesmo sensor."""
+        for registros in ([anotado(0, sensor=None)], [anotado(0, sensor="")],
+                          [anotado(0), anotado(1, modelo="DS18B20")]):
+            
+            with self.subTest(registros=registros):
+                with self.assertRaises(ValueError):
+                    an.gerar_relatorio(registros)
 
 
 if __name__ == "__main__":

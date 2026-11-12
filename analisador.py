@@ -5,7 +5,7 @@ Felipe Kenzo Higashi
 Lucas Henrique Motta
 
 HU1 e HU2: deteccao estatistica e identificacao de possiveis travamentos.
-As funcoes das HU3 e HU4 permanecem como esqueletos nesta versao.
+HU4: consolidacao do relatorio de qualidade.
 
 Registro (dict), uma linha do CSV:
     {
@@ -29,8 +29,12 @@ Trecho constante suspeito (dict) (campos do CA2.4):
 """
 
 import copy
+import csv
 import math
+import os
+from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 
 # parametros definidos nos criterios de aceitacao
 VARIAVEIS = ("temperatura", "umidade")
@@ -55,7 +59,6 @@ SENSOR_INOPERANTE = "Sensor Inoperante"
 # HU1 deteccao estatistica de outliers
 def outlier_quartis(janela, variavel="temperatura"):
     """Conta os valores fora dos limites e exporta registros quando aplicável."""
-    from funcAux import quicksort
     if not janela:
         raise ValueError("A janela precisa conter pelo menos uma amostra.")
 
@@ -78,8 +81,6 @@ def outlier_quartis(janela, variavel="temperatura"):
     ]
 
     if registros:
-        import csv
-
         sensor_ids = {amostra.get("sensor_id") for amostra in janela}
         if len(sensor_ids) != 1 or None in sensor_ids:
             raise ValueError("Todos os registros precisam ter o mesmo sensor_id.")
@@ -130,8 +131,6 @@ def outlier_grubbs(janela, variavel="temperatura"):
 
     quantidade = sum(outliers)
     if registros:
-        import csv
-
         sensor_ids = {amostra.get("sensor_id") for amostra in janela}
         if len(sensor_ids) != 1 or None in sensor_ids:
             raise ValueError("Todos os registros precisam ter o mesmo sensor_id.")
@@ -366,9 +365,206 @@ def gerar_relatorio(registros, trechos=None, gaps=None):
 
     Recebe registros (originais anotados pela HU1/HU2 e imputados da HU3),
     os trechos da HU2 e os gaps da HU3.
+    
+    - Nao executa novamente as analises;
+    - trechos/gaps omitidos equivalem a listas vazias;
+    - Nao altera as entradas;
+    - Cada item de registros representa uma leitura;
+    - IDs devem ser unicos dentro de cada sensor.
+    - Ausencia de classificacao não significa Normal.
     Chaves:
       registros_sinalizados_percentual (float | None), ausencia_de_dados (bool),
       escopo_percentual (str), contagem, por_variavel, trechos,
-      por_sensor, por_modelo.
+      gaps, por_sensor, por_modelo.
     """
-    raise NotImplementedError("Sprint 3")
+    # convertendo os dados para listas
+    registros = list(registros)
+    trechos = list(trechos) if trechos is not None else []
+    gaps = list(gaps) if gaps is not None else []
+    grupos = {}
+
+    for campo, itens in (("registros", registros), ("trechos", trechos), ("gaps", gaps)):
+        for item in itens:
+            # cada registro ou evento precisa informar qual sensor pertence
+            sensor_id = item.get("sensor_id")
+            
+            if not isinstance(sensor_id, str) or not sensor_id.strip():
+                raise ValueError("Cada registro ou evento precisa de um sensor_id textual.")
+            grupo = grupos.setdefault(sensor_id, {
+                "modelo": None, "registros": [], "trechos": [], "gaps": [],
+            })
+            modelo = item.get("modelo")
+            
+            if modelo is not None:
+                # o mesmo sensor nao pode ter modelos diferentes
+                if not isinstance(modelo, str) or not modelo.strip():
+                    raise ValueError("O modelo precisa ser um texto nao vazio.")
+                if grupo["modelo"] not in (None, modelo):
+                    raise ValueError(f"Modelos divergentes para o sensor {sensor_id}.")
+                grupo["modelo"] = modelo
+            grupo[campo].append(item)
+
+    # calcula o resumo geral antes dos resumos individuais
+    relatorio = _resumir_qualidade(registros, trechos, gaps)
+    relatorio["por_sensor"] = {}
+    por_modelo = {}
+    
+    for sensor_id, grupo in grupos.items():
+        resumo = _resumir_qualidade(
+            grupo["registros"], grupo["trechos"], grupo["gaps"])
+        resumo["modelo"] = grupo["modelo"]
+        relatorio["por_sensor"][sensor_id] = resumo
+        
+        # um evento sem modelo continua no resumo do sensor e no geral
+        if grupo["modelo"] is None:
+            continue
+        
+        # junta os dados dos sensores que tem modelo informado
+        modelo = por_modelo.setdefault(grupo["modelo"], {
+            "sensor_ids": [], "registros": [], "trechos": [], "gaps": [],
+        })
+        modelo["sensor_ids"].append(sensor_id)
+        for campo in ("registros", "trechos", "gaps"):
+            modelo[campo].extend(grupo[campo])
+
+    relatorio["por_modelo"] = {}
+    
+    for modelo, grupo in por_modelo.items():
+        resumo = _resumir_qualidade(
+            grupo["registros"], grupo["trechos"], grupo["gaps"])
+        resumo["sensor_ids"] = grupo["sensor_ids"]
+        relatorio["por_modelo"][modelo] = resumo
+    
+    return relatorio
+
+
+# FUNÇÕES AUXILIARES
+def _resumir_qualidade(registros, trechos, gaps):
+    """Aplica as mesmas regras ao conjunto geral, a um sensor ou a um modelo."""
+    contagem = {
+        "total_registros_originais": 0, NORMAL: 0, OUTLIER: 0,
+        "nao_classificados": 0, "registros_suspeita_travamento": 0,
+        "registros_sinalizados": 0, "trechos_suspeitos": len(trechos),
+        "eventos_gap": len(gaps), IMPUTADO: 0,
+    }
+    por_variavel = {
+        variavel: {NORMAL: 0, OUTLIER: 0, "nao_classificados": 0,
+                   "registros_suspeita_travamento": 0, "trechos_suspeitos": 0}
+        for variavel in VARIAVEIS
+    }
+    for registro in registros:
+        if registro.get("status") == IMPUTADO:
+            contagem[IMPUTADO] += 1
+            continue
+        contagem["total_registros_originais"] += 1
+        estatistica = registro.get("status_estatistico") or {}
+        suspeitas = registro.get("suspeita_travamento") or {}
+        tem_outlier = False
+        tem_suspeita = False
+        todas_normais = True
+        for variavel, resumo in por_variavel.items():
+            status = estatistica.get(variavel)
+            suspeita = suspeitas.get(variavel) is True
+            if status in (NORMAL, OUTLIER):
+                resumo[status] += 1
+            else:
+                resumo["nao_classificados"] += 1
+            resumo["registros_suspeita_travamento"] += int(suspeita)
+            tem_outlier = tem_outlier or status == OUTLIER
+            tem_suspeita = tem_suspeita or suspeita
+            todas_normais = todas_normais and status == NORMAL
+
+        if tem_outlier:
+            contagem[OUTLIER] += 1
+        elif todas_normais:
+            contagem[NORMAL] += 1
+        else:
+            contagem["nao_classificados"] += 1
+        contagem["registros_suspeita_travamento"] += int(tem_suspeita)
+        contagem["registros_sinalizados"] += int(tem_outlier or tem_suspeita)
+
+    for trecho in trechos:
+        por_variavel[trecho["variavel"]]["trechos_suspeitos"] += 1
+    total = contagem["total_registros_originais"]
+    return {
+        "registros_sinalizados_percentual": (
+            contagem["registros_sinalizados"] / total * 100 if total else None),
+        "ausencia_de_dados": total == 0,
+        "escopo_percentual": (
+            "Percentual de registros originais com outlier ou suspeita de "
+            "travamento, contados uma unica vez. Imputados sao excluidos; "
+            "classificacoes ausentes nao sao presumidas normais."),
+        "contagem": contagem,
+        "por_variavel": por_variavel,
+        "trechos": copy.deepcopy(trechos),
+        "gaps": copy.deepcopy(gaps),
+    }
+
+
+# quicksort pro metodo de quantis
+def quicksort(arr):
+    """Ordena a lista arr usando o algoritmo quicksort."""
+    if len(arr) <= 1:
+        return arr
+    else:
+        pivot = arr[len(arr) // 2]
+        left = [x for x in arr if x < pivot]
+        middle = [x for x in arr if x == pivot]
+        right = [x for x in arr if x > pivot]
+        return quicksort(left) + middle + quicksort(right)
+
+# importar medições de sensores de um arquivo CSV
+
+def importar_dados_csv(caminho_arquivo):
+    """Importa um CSV e usa o nome do arquivo como sensor_id se necessário."""
+    sensor_id = Path(caminho_arquivo).stem
+    with open(caminho_arquivo, newline='', encoding='utf-8-sig') as csvfile:
+        reader = csv.DictReader(csvfile)
+        dados = []
+        for row in reader:
+            if not row.get("sensor_id"):
+                row["sensor_id"] = sensor_id
+            dados.append(row)
+        return dados
+
+def separar_dados_por_sensor_e_variavel(dados, caminho_saida):
+    """Separa registros normalizados ou CSVs largos por sensor e variável."""
+    dados_separados = defaultdict(list)
+
+    for registro in dados:
+        sensor_id = registro.get("sensor_id")
+        if not sensor_id:
+            raise ValueError("Cada registro precisa de um sensor_id.")
+
+        if "variavel" in registro:
+            chave = (sensor_id, registro["variavel"])
+            dados_separados[chave].append(registro)
+            continue
+
+        campos_horario = ("Carimbo de data/hora", "hora")
+        variaveis = ("temperatura", "umidade")
+        campos_necessarios = campos_horario + variaveis
+        ausentes = [campo for campo in campos_necessarios
+                    if campo not in registro]
+        if ausentes:
+            raise ValueError(
+                "Registro CSV largo sem as colunas esperadas: "
+                + ", ".join(ausentes)
+            )
+
+        for variavel in variaveis:
+            campos = [campo for campo in registro
+                      if campo in campos_horario or campo == variavel]
+            dados_separados[(sensor_id, variavel)].append(
+                {campo: registro[campo] for campo in campos}
+            )
+
+    for (sensor_id, variavel), registros in dados_separados.items():
+        nome_arquivo = os.path.join(
+            caminho_saida, f"{sensor_id}_{variavel}.csv"
+        )
+        with open(nome_arquivo, 'w', newline='', encoding='utf-8') as csvfile:
+            fieldnames = registros[0].keys()
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(registros)

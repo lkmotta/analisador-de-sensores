@@ -104,4 +104,38 @@ Para executar na pasta do projeto:
 python -m unittest -v test_analisador
 ```
 
-Nesta sprint, as funções de `analisador.py` ainda são esqueletos e os testes apresentam `NotImplementedError`. Eles definem o comportamento a ser implementado na Sprint 3.
+## Sprint 3 - arquitetura e desenvolvimento
+
+### diagrama de arquitetura
+
+**pendente*
+
+### HU4: contrato e decisões
+
+`gerar_relatorio(registros, trechos=None, gaps=None)`
+
+- `registros`: leituras originais com `status_estatistico` e `suspeita_travamento` por variável, junto dos registros com `status = "Imputado"` produzidos pela HU3. <br>
+Cada item representa uma leitura;
+<br>a entrada deve ter IDs únicos dentro de cada sensor.
+- `trechos`: lista produzida por `detectar_trechos_constantes`, com os campos do CA2.4.
+- `gaps`: lista produzida por `detectar_gaps`, com `sensor_id`, `inicio`, `fim` e `duracao_segundos`.
+- Omitir `trechos` ou `gaps` equivale a passar uma lista vazia.
+
+| Campo da saída | Conteúdo |
+| --- | --- |
+| `registros_sinalizados_percentual` | originais com outlier ou suspeita / total de originais x 100, sem arredondar |
+| `ausencia_de_dados` | `True` quando não tem originais.<br> Nesse caso o percentual é `None` (`null` no JSON) |
+| `escopo_percentual` | Explicação das sinalizações feitas e da exclusão dos imputados |
+| `contagem` | Originais, `Normal`, `Outlier`, não classificados, suspeitos, sinalizados, trechos, gaps e `Imputado` |
+| `por_variavel` | resultados estatísticos, não classificados, suspeitas e trechos de temperatura e umidade |
+| `trechos` e `gaps` | cópias dos eventos, preservando os detalhes |
+| `por_sensor` | resumo de cada sensor, incluindo o modelo |
+| `por_modelo` | resumo por modelo, incluindo `sensor_ids` dos sensores agrupados |
+
+<br> **Imputados ficam fora de todas as contagens estatísticas** e de suspeita, mesmo que tenham recebido anotações (aparecem só no total `Imputado`).
+
+A saída serializa os dados em JSON, considerando os registros e eventos no formato documentado.
+
+### Validação dessa implementação
+
+**pendente*
