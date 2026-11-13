@@ -39,16 +39,14 @@ from pathlib import Path
 
 # parametros definidos nos criterios de aceitacao
 VARIAVEIS = ("temperatura", "umidade")
-JANELA_AMOSTRAS = 21             # CA1.1
 BARREIRA_QUARTIS = 2             # CA1.1
 LIMIAR_GRUBBS = 2.58             # CA1.2 (N=21, alfa=0,05)
-MIN_LEITURAS_CONSTANTES = 10     # CA2.2 (configuravel)
-LIMITE_GAP_SEGUNDOS = 15         # CA3.1
-# A amostragem observada no DHT22.csv ocorre a cada 16-17 s.
-LIMITE_GAP_HU2_SEGUNDOS = 20     # tolerancia da sequencia constante (HU2)
+MIN_LEITURAS_CONSTANTES = 20     # CA2.2 (configuravel)
+LIMITE_GAP_SEGUNDOS = 30         # CA3.1
+LIMITE_GAP_HU2_SEGUNDOS = 30     # tolerancia da sequencia constante (HU2)
 K_MEDIA_MOVEL = 3                # CA3.2
 MAX_FALHAS_CONSECUTIVAS = 5      # CA3.4
-INTERVALO_PADRAO_SEGUNDOS = 10   # intervalo esperado das leituras
+INTERVALO_PADRAO_SEGUNDOS = 20   # intervalo esperado das leituras
 
 # status e alertas
 NORMAL = "Normal"
