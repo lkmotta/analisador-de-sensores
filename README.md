@@ -108,7 +108,49 @@ python -m unittest -v test_analisador
 
 ### diagrama de arquitetura
 
-**pendente*
+```mermaid
+flowchart TD
+    CSV["Abrir arquivo CSV"] --> Registros["Leituras por sensor"]
+    Registros --> HU1["HU1: identificar outliers"]
+    Registros --> HU2["HU2: detectar leituras repetidas"]
+    Registros --> HU3["HU3: detectar e preencher lacunas"]
+    HU1 -->|Anotações por leitura| HU4["HU4: gerar relatório de qualidade"]
+    HU2 -->|Suspeitas e trechos| HU4
+    HU3 -->|Registros imputados e gaps| HU4
+    HU3 --> Alertas["Alertas de sensor inoperante"]
+    HU4 --> JSON["Dicionário exportável para JSON"]
+```
+
+### HU1: detecção de outliers
+
+Os testes dos Quartis e de Grubbs avaliam temperatura e umidade separadamente.
+Quartis usa os limites Q1 − 2 × Ai e Q3 + 2 × Ai. Grubbs sinaliza quando
+G > 2,58 e não aponta outlier quando o desvio padrão é zero.
+
+### HU2: suspeita de travamento
+
+O analisador procura 10 ou mais valores iguais em sequência, por sensor e
+variável, e marca todo o trecho. Uma mudança de valor, leitura inválida ou
+lacuna acima de 15 segundos encerra a sequência. Registros imputados não
+entram nessa análise.
+
+### HU3: implementacao e validação
+
+As funções `detectar_gaps(registros, limite_segundos=15)` e
+`imputar_ausentes(registros, intervalo_segundos=10)` foram feitas em
+`analisador.py`.
+
+- Gaps sao detectados entre registros originais consecutivos **do mesmo sensor**,
+  quando a diferenca de horario ultrapassa 15 segundos.
+- O preenchimento usa os instantes esperados a cada 10 segundos e a media de
+  ate tres valores validos anteriores por variavel (temperatura e umidade).
+  Os valores validos ja imputados tambem podem entrar na proxima media.
+- Cada registro criado recebe `status = "Imputado"`, `sensor_id`, `modelo`,
+  `timestamp` e um `id` sintetico.
+- Quando tem mais de 5 instantes faltantes no mesmo intervalo, nenhum registro
+  daquele intervalo e criado e o sensor recebe um alerta
+  `{"alerta": "Sensor Inoperante", "sensor_id": ...}`.
+- Valores ausentes, textos invalidos, booleanos e infinitos nao entram na media.
 
 ### HU4: contrato e decisões
 
@@ -136,29 +178,20 @@ Cada item representa uma leitura;
 
 A saída serializa os dados em JSON, considerando os registros e eventos no formato documentado.
 
-### Validação dessa implementação
 
-**pendente*
+### Validação
 
-### HU3: implementacao e validacao
+Para rodar os 31 testes das quatro histórias:
 
-As funcoes `detectar_gaps(registros, limite_segundos=15)` e
-`imputar_ausentes(registros, intervalo_segundos=10)` foram implementadas em
-`analisador.py`.
+```bash
+python -m unittest -v test_analisador
+```
 
-- Gaps sao detectados entre registros originais consecutivos **do mesmo sensor**,
-  quando a diferenca de horario ultrapassa 15 segundos.
-- O preenchimento usa os instantes esperados a cada 10 segundos e a media de
-  ate tres valores validos anteriores por variavel (temperatura e umidade).
-  Os valores validos ja imputados tambem podem entrar na proxima media.
-- Cada registro criado recebe `status = "Imputado"`, `sensor_id`, `modelo`,
-  `timestamp` e um `id` sintetico. Os originais nao sao modificados.
-- Quando ha mais de 5 instantes faltantes no mesmo intervalo, nenhum registro
-  daquele intervalo e criado e o sensor recebe um alerta
-  `{"alerta": "Sensor Inoperante", "sensor_id": ...}`. Outros intervalos e
-  sensores continuam sendo processados.
-- Valores ausentes, textos invalidos, booleanos e infinitos nao entram na media.
-  Se nao houver nenhum valor valido anterior para uma variavel, o valor
-  imputado dessa variavel sera `None`.
+Para rodar uma história por vez:
 
-Validacao: `python -m unittest -v test_analisador` — 30 testes passaram.
+```bash
+python -m unittest -v test_analisador.TestHU1Outliers
+python -m unittest -v test_analisador.TestHU2PeriodosConstantes
+python -m unittest -v test_analisador.TestHU3GapsEImputacao
+python -m unittest -v test_analisador.TestHU4Relatorio
+```
