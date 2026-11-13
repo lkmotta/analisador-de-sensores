@@ -74,7 +74,7 @@ Como desenvolvedor de soluções IoT, quero detectar falhas na coleta e preenche
 
 #### Critérios de aceitação
 
-1. **CA3.1:** Identificar um gap quando o intervalo entre duas leituras consecutivas do mesmo sensor for maior que 15 segundos.
+1. **CA3.1:** Identificar um gap quando o intervalo entre duas leituras consecutivas do mesmo sensor for maior que 30 segundos.
 2. **CA3.2:** Preencher uma leitura ausente isolada com a média das 3 últimas leituras válidas anteriores.
 3. **CA3.3:** Marcar os registros criados com o status `Imputado`, mantendo a identificação do sensor e sem marcar os originais como imputados.
 4. **CA3.4:** Permitir o preenchimento de até 5 falhas consecutivas. Acima disso, suspender o preenchimento daquele gap e emitir o alerta `Sensor Inoperante` para o sensor afetado.
@@ -131,18 +131,18 @@ G > 2,58 e não aponta outlier quando o desvio padrão é zero.
 
 O analisador procura 10 ou mais valores iguais em sequência, por sensor e
 variável, e marca todo o trecho. Uma mudança de valor, leitura inválida ou
-lacuna acima de 15 segundos encerra a sequência. Registros imputados não
+lacuna acima de 30 segundos encerra a sequência. Registros imputados não
 entram nessa análise.
 
 ### HU3: implementacao e validação
 
-As funções `detectar_gaps(registros, limite_segundos=15)` e
-`imputar_ausentes(registros, intervalo_segundos=10)` foram feitas em
+As funções `detectar_gaps(registros, limite_segundos=30)` e
+`imputar_ausentes(registros, intervalo_segundos=20)` foram feitas em
 `analisador.py`.
 
 - Gaps sao detectados entre registros originais consecutivos **do mesmo sensor**,
-  quando a diferenca de horario ultrapassa 15 segundos.
-- O preenchimento usa os instantes esperados a cada 10 segundos e a media de
+  quando a diferenca de horario ultrapassa 30 segundos.
+- O preenchimento usa os instantes esperados a cada 20 segundos e a media de
   ate tres valores validos anteriores por variavel (temperatura e umidade).
   Os valores validos ja imputados tambem podem entrar na proxima media.
 - Cada registro criado recebe `status = "Imputado"`, `sensor_id`, `modelo`,

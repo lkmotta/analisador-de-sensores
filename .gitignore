@@ -4,3 +4,4 @@ __pycache__/
 *.csv
 !DHT22.csv
 MeusTestes.py
+*.json
