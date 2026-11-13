@@ -40,7 +40,7 @@ from pathlib import Path
 # parametros definidos nos criterios de aceitacao
 VARIAVEIS = ("temperatura", "umidade")
 BARREIRA_QUARTIS = 2             # CA1.1
-LIMIAR_GRUBBS = 2.58             # CA1.2 (N=21, alfa=0,05)
+LIMIAR_GRUBBS = 4.674             # CA1.2 (N=21, alfa=0,05)
 MIN_LEITURAS_CONSTANTES = 20     # CA2.2 (configuravel)
 LIMITE_GAP_SEGUNDOS = 30         # CA3.1
 LIMITE_GAP_HU2_SEGUNDOS = 30     # tolerancia da sequencia constante (HU2)
