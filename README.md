@@ -211,3 +211,35 @@ python -m unittest -v test_analisador.TestHU2PeriodosConstantes
 python -m unittest -v test_analisador.TestHU3GapsEImputacao
 python -m unittest -v test_analisador.TestHU4Relatorio
 ```
+
+## Sprint 4 - Padrões de projeto
+
+### Strategy na detecção de outliers (HU1)
+
+O argumento `metodo` permite escolher o algoritmo durante a execução.
+No módulo `analisador.py`, `analisar_outliers()` consulta
+`_ESTRATEGIAS_OUTLIERS` e chama `calcular(valores)` na estratégia selecionada.
+Com `ambos`, chama as duas estratégias na ordem Quartis e Grubbs.
+
+Quartis calcula as barreiras a partir de Q1 e Q3. Grubbs usa a média, o desvio
+padrão e o limiar crítico para o tamanho da janela. Cada estratégia devolve
+as marcações na ordem original das leituras e os limites inferior e superior.
+Com esse contrato, a preparação dos dados, a contagem e a exportação das
+marcações são compartilhadas pelos dois métodos.
+
+```mermaid
+classDiagram
+    class EstrategiaOutliers {
+        <<abstract>>
+        +calcular(valores)*
+    }
+    class EstrategiaQuartis {
+        +calcular(valores)
+    }
+    class EstrategiaGrubbs {
+        +calcular(valores)
+    }
+    EstrategiaOutliers <|-- EstrategiaQuartis
+    EstrategiaOutliers <|-- EstrategiaGrubbs
+    note for EstrategiaOutliers "Em analisador.py, analisar_outliers() chama calcular(valores)"
+```

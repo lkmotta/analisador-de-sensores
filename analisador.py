@@ -35,6 +35,7 @@ import json
 import math
 import os
 import sys
+from abc import ABC, abstractmethod
 from collections import defaultdict
 from contextlib import chdir
 from datetime import datetime, timedelta
@@ -71,41 +72,62 @@ def _valores_da_janela(janela, variavel):
     return registros, valores
 
 
-def _calcular_quartis(valores):
-    janela_ordenada = quicksort(valores)
-    q1 = janela_ordenada[len(janela_ordenada) // 4]
-    q3 = janela_ordenada[3 * len(janela_ordenada) // 4]
-    iqr = q3 - q1
+class EstrategiaOutliers(ABC):
+    """Contrato para os algoritmos de deteccao de outliers."""
 
-    limite_inferior = q1 - BARREIRA_QUARTIS * iqr
-    limite_superior = q3 + BARREIRA_QUARTIS * iqr
-    outliers = [
-        int(valor < limite_inferior or valor > limite_superior)
-        for valor in valores
-    ]
-    return outliers, limite_inferior, limite_superior
+    titulo: str
+    descricao_intervalo: str
+
+    @abstractmethod
+    def calcular(self, valores):
+        """Retorna as marcacoes na ordem da entrada e os dois limites."""
 
 
-def _calcular_grubbs(valores):
-    limiar = Limiar_grubbs(len(valores))
-    media = sum(valores) / len(valores)
-    desvio_padrao = (sum((valor - media) ** 2 for valor in valores)
-                     / len(valores)) ** 0.5
+class EstrategiaQuartis(EstrategiaOutliers):
+    titulo = "Quantidade de outliers(Quartis)"
+    descricao_intervalo = "intervalo dos quantis"
 
-    if desvio_padrao == 0:
-        outliers = [0] * len(valores)
-    else:
+    def calcular(self, valores):
+        janela_ordenada = quicksort(valores)
+        q1 = janela_ordenada[len(janela_ordenada) // 4]
+        q3 = janela_ordenada[3 * len(janela_ordenada) // 4]
+        iqr = q3 - q1
+
+        limite_inferior = q1 - BARREIRA_QUARTIS * iqr
+        limite_superior = q3 + BARREIRA_QUARTIS * iqr
+        outliers = [
+            int(valor < limite_inferior or valor > limite_superior)
+            for valor in valores
+        ]
+        return outliers, limite_inferior, limite_superior
+
+
+class EstrategiaGrubbs(EstrategiaOutliers):
+    titulo = "Quantidade de outliers (Grubbs)"
+    descricao_intervalo = "intervalo"
+
+    def calcular(self, valores):
+        limiar = Limiar_grubbs(len(valores))
+        media = sum(valores) / len(valores)
+        desvio_padrao = (sum((valor - media) ** 2 for valor in valores)
+                         / len(valores)) ** 0.5
+
+        if desvio_padrao == 0:
+            return [0] * len(valores), media, media
+
         limite_inferior = media - limiar * desvio_padrao
         limite_superior = media + limiar * desvio_padrao
         outliers = [
             int(valor < limite_inferior or valor > limite_superior)
             for valor in valores
         ]
+        return outliers, limite_inferior, limite_superior
 
-    if desvio_padrao == 0:
-        limite_inferior = media
-        limite_superior = media
-    return outliers, limite_inferior, limite_superior
+# dicionario em variável constante pra facilitar a escolha da estrategia
+_ESTRATEGIAS_OUTLIERS: dict[str, EstrategiaOutliers] = {
+    "quartis": EstrategiaQuartis(),
+    "grubbs": EstrategiaGrubbs(),
+}
 
 
 def _exportar_outliers(janela, variavel, metodo, marcacoes):
@@ -137,21 +159,23 @@ def analisar_outliers(janela, variavel="temperatura", metodo="ambos",
     Retorna a quantidade encontrada em cada metodo pedido.
     Se retornar_marcacoes for True, inclui tambem a marca de cada amostra.
     """
-    metodos = {
-        "quartis": _calcular_quartis,
-        "grubbs": _calcular_grubbs,
-    }
-    if not isinstance(metodo, str) or metodo.lower() not in (*metodos, "ambos"):
+    # verificando se o metodo informado é uma strategy disponível
+    if not isinstance(metodo, str) or metodo.lower() not in (*_ESTRATEGIAS_OUTLIERS, "ambos"):
         raise ValueError("metodo deve ser 'quartis', 'grubbs' ou 'ambos'.")
 
-    metodo = metodo.lower()
-    registros, valores = _valores_da_janela(janela, variavel)
-    escolhidos = metodos if metodo == "ambos" else {metodo: metodos[metodo]}
+    metodo = metodo.lower() # minuscula pra padronizar
+    registros, valores = _valores_da_janela(janela, variavel) # pega os valores numericos da janela
+
+    escolhidos = _ESTRATEGIAS_OUTLIERS if metodo == "ambos" else (metodo,) # escolhe as estratégias a serem usadas
     resultado = {}
 
-    for nome, calcular in escolhidos.items():
-        marcacoes, limite_inferior, limite_superior = calcular(valores)
+    for nome in escolhidos:
+        estrategia = _ESTRATEGIAS_OUTLIERS[nome]
+        # a estratégia identifica os outliers e informa os limites do intervalo analisado
+        marcacoes, limite_inferior, limite_superior = estrategia.calcular(valores)
         quantidade = sum(marcacoes)
+
+        # armazenando a quantidade encontrada e (se solicitado) as marcações de cada amostra
         if retornar_marcacoes:
             resultado[nome] = {
                 "quantidade": quantidade,
@@ -160,21 +184,15 @@ def analisar_outliers(janela, variavel="temperatura", metodo="ambos",
         else:
             resultado[nome] = quantidade
 
+        # se tiver outliers
         if registros:
-            _exportar_outliers(janela, variavel, nome, marcacoes)
-            if nome == "quartis":
-                print(
-                    f"Quantidade de outliers: {quantidade}\n"
-                    f"considerando {len(janela)} amostras com intervalo "
-                    f"dos quantis [{limite_inferior:.2f}, "
-                    f"{limite_superior:.2f}]"
-                )
-            else:
-                print(
-                    f"Quantidade de outliers (Grubbs): {quantidade}\n"
-                    f"considerando {len(janela)} amostras com intervalo "
-                    f"[{limite_inferior:.2f}, {limite_superior:.2f}]"
-                )
+            _exportar_outliers(janela, variavel, nome, marcacoes) # exporta os resultados pra um CSV
+            print(
+                f"{estrategia.titulo}: {quantidade}\n"
+                f"considerando {len(janela)} amostras com "
+                f"{estrategia.descricao_intervalo} "
+                f"[{limite_inferior:.2f}, {limite_superior:.2f}]"
+            )
 
     return resultado
 
@@ -816,13 +834,13 @@ def main():
     argumentos = sys.argv[1:]
     if len(argumentos) != 3:
         print("Uso: python analisador.py arquivo_dados.csv metodo saida")
-        return 2
+        return 2 # erro de uso
 
     arquivo_csv, metodo, pasta_saida = argumentos
     metodo = metodo.lower()
-    if metodo not in ("quartis", "grubbs", "ambos"):
+    if metodo not in (*_ESTRATEGIAS_OUTLIERS, "ambos"):
         print("Metodo deve ser quartis, grubbs ou ambos.")
-        return 2
+        return 2 # erro de uso
 
     try:
         csv_saida, json_saida = AnalisadorFacade().executar(
@@ -832,14 +850,10 @@ def main():
         print(f"CSV analisado salvo em: {csv_saida}")
     except (OSError, ValueError) as erro:
         print(f"Erro: {erro}")
-        return 1
+        return 1 # erro de execução
 
-    return 0
+    return 0 # deu bom
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-
-

@@ -5,3 +5,4 @@ __pycache__/
 !DHT22.csv
 MeusTestes.py
 *.json
+.pytest_cache/
