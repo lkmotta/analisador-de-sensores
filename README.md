@@ -1,7 +1,14 @@
 # analisador-de-sensores
 Projeto Final de Engenharia de Software: Analisador de qualidade de dados de sensores (temperatura/umidade)
 
+## Instalação
 
+Na raiz do repositório, instale o SciPy, usado no cálculo do valor crítico do teste de Grubbs, e execute os testes automatizados.
+
+```bash
+python -m pip install -r requirements.txt
+python -m unittest -v test_analisador
+```
 
 ## Sprint 1 - Proposta
 
