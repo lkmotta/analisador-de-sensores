@@ -33,7 +33,9 @@ import copy
 import csv
 import math
 import os
+import sys
 from collections import defaultdict
+from contextlib import chdir
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -127,10 +129,12 @@ def _exportar_outliers(janela, variavel, metodo, marcacoes):
         )
 
 
-def analisar_outliers(janela, variavel="temperatura", metodo="ambos"):
+def analisar_outliers(janela, variavel="temperatura", metodo="ambos",
+                      retornar_marcacoes=False):
     """Conta outliers por Quartis, Grubbs ou pelos dois metodos.
 
-    Retorna um dicionario com a quantidade encontrada em cada metodo pedido.
+    Retorna a quantidade encontrada em cada metodo pedido.
+    Se retornar_marcacoes for True, inclui tambem a marca de cada amostra.
     """
     metodos = {
         "quartis": _calcular_quartis,
@@ -147,7 +151,13 @@ def analisar_outliers(janela, variavel="temperatura", metodo="ambos"):
     for nome, calcular in escolhidos.items():
         marcacoes, limite_inferior, limite_superior = calcular(valores)
         quantidade = sum(marcacoes)
-        resultado[nome] = quantidade
+        if retornar_marcacoes:
+            resultado[nome] = {
+                "quantidade": quantidade,
+                "marcacoes": marcacoes,
+            }
+        else:
+            resultado[nome] = quantidade
 
         if registros:
             _exportar_outliers(janela, variavel, nome, marcacoes)
@@ -413,6 +423,33 @@ def _numero_hu3(valor):
     if not math.isfinite(numero):
         return None
     return numero
+
+
+def analisar_registros(registros, metodo="ambos"):
+    """Analisa os outliers por sensor e variavel e marca cada registro."""
+    for registro in registros:
+        registro["outlier"] = 0
+
+    for leituras in _agrupar_hu3(registros).values():
+        for variavel in VARIAVEIS:
+            amostras = [
+                registro for _, registro in leituras
+                if _numero_hu3(registro.get(variavel)) is not None
+            ]
+            if not amostras:
+                continue
+
+            resultados = analisar_outliers(
+                amostras, variavel, metodo, retornar_marcacoes=True
+            )
+            for indice, registro in enumerate(amostras):
+                foi_outlier = any(
+                    resultado["marcacoes"][indice]
+                    for resultado in resultados.values()
+                )
+                registro["outlier"] |= int(foi_outlier)
+
+    return registros
 
 
 def detectar_gaps(registros, limite_segundos=LIMITE_GAP_SEGUNDOS):
@@ -730,5 +767,43 @@ def Limiar_grubbs(N, alfa=0.05):
     t_critico = t.ppf(1 - alfa / (2 * N), N - 2)
     limiar = ((N - 1) / math.sqrt(N)) * math.sqrt(t_critico**2 / (N - 2 + t_critico**2))
     return limiar
+
+
+def main():
+    if len(sys.argv) != 4:
+        print("Uso: python analisador.py arquivo_dados.csv metodo saida")
+        return 2
+
+    arquivo_csv = Path(sys.argv[1]).resolve()
+    metodo = sys.argv[2].lower()
+    pasta_saida = Path(sys.argv[3]).resolve()
+    if metodo not in ("quartis", "grubbs", "ambos"):
+        print("Metodo deve ser quartis, grubbs ou ambos.")
+        return 2
+
+    try:
+        registros = importar_dados_csv(arquivo_csv)
+        pasta_saida.mkdir(parents=True, exist_ok=True)
+        with chdir(pasta_saida):
+            analisar_registros(registros, metodo)
+
+        arquivo_saida = pasta_saida / f"{arquivo_csv.stem}_analisado.csv"
+        campos = list(dict.fromkeys(
+            campo for registro in registros for campo in registro
+        ))
+        with arquivo_saida.open("w", newline="", encoding="utf-8") as arquivo:
+            escritor = csv.DictWriter(arquivo, fieldnames=campos)
+            escritor.writeheader()
+            escritor.writerows(registros)
+        print(f"Arquivo com os resultados: {arquivo_saida}")
+    except (OSError, ValueError) as erro:
+        print(f"Erro: {erro}")
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
