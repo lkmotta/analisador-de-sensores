@@ -59,12 +59,12 @@ Como estudante de IoT, quero identificar leituras fora do padrão usando os test
 
 Como usuário dos sensores, quero encontrar períodos de leituras repetidas, para verificar se algum sensor pode estar travado.
 
-Leituras iguais geram uma suspeita, pois também podem ocorrer quando o ambiente está estável. O limite inicial de 10 leituras foi escolhido pela equipe e pode ser ajustado.
+Leituras iguais geram uma suspeita, pois também podem ocorrer quando o ambiente está estável. O limite inicial de 20 leituras foi escolhido pela equipe e pode ser ajustado.
 
 #### Critérios de aceitação
 
 1. **CA2.1:** Analisar cada sensor em ordem de horário, separando temperatura e umidade. Contar valores numéricos exatamente iguais desde a primeira leitura, usando apenas registros originais válidos.
-2. **CA2.2:** Ao atingir `MIN_LEITURAS_CONSTANTES` (inicialmente 10), marcar todas as leituras da sequência com `suspeita_travamento = True` na variável analisada. Novas repetições ampliam o mesmo trecho. Essa marcação pode existir junto com `Outlier`.
+2. **CA2.2:** Ao atingir `MIN_LEITURAS_CONSTANTES` (inicialmente 20), marcar todas as leituras da sequência com `suspeita_travamento = True` na variável analisada. Novas repetições ampliam o mesmo trecho. Essa marcação pode existir junto com `Outlier`.
 3. **CA2.3:** Encerrar a sequência quando o valor mudar, houver gap, aparecer um valor ausente ou inválido, ou terminar o arquivo. A próxima leitura original válida inicia outra sequência. Registros imputados não podem unir sequências separadas por um gap.
 4. **CA2.4:** Para cada trecho, informar sensor, modelo, variável, valor repetido, horários de início e fim, duração (fim - início), quantidade de leituras e IDs dos registros. Preservar os valores e horários originais.
 
@@ -96,7 +96,7 @@ As referências completas estão na Sprint 1. Usbert et al. (2021) servem de bas
 
 ### Testes automatizados
 
-Os testes estão em `test_analisador.py`, separados pelas quatro histórias. Os nomes e as descrições indicam os critérios verificados. Casos semelhantes usam `subTest`, como os limites de 9 e 10 leituras repetidas ou os intervalos de 15 e 16 segundos.
+Os testes estão em `test_analisador.py`, separados pelas quatro histórias. Os nomes e as descrições indicam os critérios verificados. Casos semelhantes usam `subTest`, como os limites de 19 e 20 leituras repetidas ou os intervalos de 30 e 31 segundos.
 
 Para executar na pasta do projeto:
 
@@ -129,7 +129,7 @@ G > 2,58 e não aponta outlier quando o desvio padrão é zero.
 
 ### HU2: suspeita de travamento
 
-O analisador procura 10 ou mais valores iguais em sequência, por sensor e
+O analisador procura 20 ou mais valores iguais em sequência, por sensor e
 variável, e marca todo o trecho. Uma mudança de valor, leitura inválida ou
 lacuna acima de 30 segundos encerra a sequência. Registros imputados não
 entram nessa análise.

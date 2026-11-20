@@ -28,7 +28,7 @@ def reg(seg, temperatura=25.0, umidade=60.0, sensor="S1", modelo="DHT22",
     return r
 
 def serie(valores, variavel="temperatura", sensor="S1", modelo="DHT22",
-          t0=0, intervalo=10):
+          t0=0, intervalo=20):
     """registros a cada 'intervalo' s
     
     só variavel recebe valores.
@@ -64,11 +64,16 @@ def anotado(i, sensor="S1", modelo="DHT22", estat_t="Normal", estat_u="Normal",
     r["suspeita_travamento"] = {"temperatura": susp_t, "umidade": susp_u}
     return r
 
-def trecho(sensor="S1", modelo="DHT22", variavel="temperatura"):
+def trecho(sensor="S1", modelo="DHT22", variavel="temperatura", quantidade=10,
+           intervalo=20):
     return {"sensor_id": sensor, "modelo": modelo, "variavel": variavel,
-            "valor": 25.0, "inicio": ts(0), "fim": ts(90),
-            "duracao_segundos": 90, "quantidade_leituras": 10,
-            "ids_registros": ["%s@%d" % (sensor, s) for s in range(0, 100, 10)]}
+            "valor": 25.0, "inicio": ts(0),
+            "fim": ts((quantidade - 1) * intervalo),
+            "duracao_segundos": (quantidade - 1) * intervalo,
+            "quantidade_leituras": quantidade,
+            "ids_registros": ["%s@%d" % (sensor, s)
+                              for s in range(0, quantidade * intervalo,
+                                             intervalo)]}
 
 class TestHU1Outliers(unittest.TestCase):
 
@@ -123,10 +128,10 @@ class TestHU2PeriodosConstantes(unittest.TestCase):
     def test_CA2_3_imputados_nao_unem_sequencias_separadas_por_gap(self):
         """CA2.3: 5 originais + 5 imputados iguais + 5 originais iguais não
         formam uma sequencia de 15."""
-        antes = serie([25.0] * 5)                                  # 0 a 40
+        antes = serie([25.0] * 5)                                  # 0 a 80
         sinteticos = [reg(s, 25.0, status="Imputado")
-                      for s in range(50, 100, 10)]
-        depois = serie([25.0] * 5, t0=100)                         # 100 a 140
+                      for s in range(100, 200, 20)]
+        depois = serie([25.0] * 5, t0=200)                         # 200 a 280
         self.assertEqual(
             an.detectar_trechos_constantes(antes + sinteticos + depois), [])
 
@@ -139,50 +144,50 @@ class TestHU2PeriodosConstantes(unittest.TestCase):
         self.assertEqual(registros, original)
 
     def test_CA2_1_CA2_2_limite_variavel_e_trecho_unico(self):
-        """CA2.1/CA2.2: 9 nao bastam; 10 iniciam e 25 ampliam um trecho."""
+        """CA2.1/CA2.2: 19 nao bastam; 20 iniciam e 25 ampliam o trecho."""
         for variavel in ("temperatura", "umidade"):
-            for quantidade in (9, 10, 25):
+            for quantidade in (19, 20, 25):
                 with self.subTest(variavel=variavel, quantidade=quantidade):
                     registros = serie([25.0] * quantidade, variavel=variavel)
                     trechos = an.detectar_trechos_constantes(registros)
-                    self.assertEqual(len(trechos), int(quantidade >= 10))
+                    self.assertEqual(len(trechos), int(quantidade >= 20))
                     if trechos:
                         self.assertEqual(trechos[0]["variavel"], variavel)
                         self.assertEqual(trechos[0]["quantidade_leituras"], quantidade)
 
     def test_CA2_2_sinalizacao_retroativa_preserva_outlier(self):
         """CA2.2: sinaliza toda a sequencia, sem apagar o resultado da HU1."""
-        registros = serie([20.0] + [25.0] * 10 + [22.0])
+        registros = serie([20.0] + [25.0] * 20 + [22.0])
         registros[4]["status_estatistico"] = {"temperatura": "Outlier",
                                               "umidade": "Normal"}
         resultado = {r["id"]: r for r in an.marcar_suspeitas(registros)}
         for i, registro in enumerate(registros):
             with self.subTest(indice=i):
                 flags = resultado[registro["id"]]["suspeita_travamento"]
-                self.assertEqual(flags["temperatura"], 1 <= i <= 10)
+                self.assertEqual(flags["temperatura"], 1 <= i <= 20)
                 self.assertFalse(flags["umidade"])
         self.assertEqual(resultado[registros[4]["id"]]["status_estatistico"],
                          {"temperatura": "Outlier", "umidade": "Normal"})
 
     def test_CA2_3_interrupcoes_e_reinicio(self):
         """CA2.3: mudanca, ausencia, invalido e gap interrompem a sequencia."""
-        cenarios = [(str(valor), serie([25.0] * 5 + [valor] + [25.0] * 10))
+        cenarios = [(str(valor), serie([25.0] * 5 + [valor] + [25.0] * 20))
                     for valor in (26.0, None, "erro", float("nan"))]
-        cenarios.append(("gap", serie([25.0] * 5) + serie([25.0] * 10, t0=100)))
+        cenarios.append(("gap", serie([25.0] * 5) + serie([25.0] * 20, t0=140)))
         for motivo, registros in cenarios:
             with self.subTest(motivo=motivo):
                 trechos = an.detectar_trechos_constantes(registros)
                 self.assertEqual(len(trechos), 1)
-                self.assertEqual(trechos[0]["quantidade_leituras"], 10)
-                self.assertEqual(trechos[0]["inicio"], registros[-10]["timestamp"])
+                self.assertEqual(trechos[0]["quantidade_leituras"], 20)
+                self.assertEqual(trechos[0]["inicio"], registros[-20]["timestamp"])
                 self.assertEqual(trechos[0]["fim"], registros[-1]["timestamp"])
 
     def test_CA2_4_rastreabilidade_em_ordem_cronologica(self):
         """CA2.1/CA2.3/CA2.4: ordenacao, fim do arquivo e campos do trecho."""
-        registros = serie([25.0] * 10, sensor="S7", modelo="DS18B20")
+        registros = serie([25.0] * 20, sensor="S7", modelo="DS18B20")
         trechos = an.detectar_trechos_constantes(list(reversed(registros)))
         self.assertEqual(len(trechos), 1)
-        esperado = trecho(sensor="S7", modelo="DS18B20")
+        esperado = trecho(sensor="S7", modelo="DS18B20", quantidade=20)
         self.assertEqual({campo: trechos[0][campo] for campo in esperado}, esperado)
 
 
@@ -190,22 +195,22 @@ class TestHU3GapsEImputacao(unittest.TestCase):
 
     def test_CA3_1_gap_e_avaliado_por_sensor(self):
         """CA3.1: so o sensor com falha e apontado (S1 regular, S2 com gap)."""
-        s1 = [reg(s, sensor="S1") for s in (0, 10, 20, 30)]
-        s2 = [reg(s, sensor="S2", modelo="DS18B20") for s in (0, 10, 40)]
+        s1 = [reg(s, sensor="S1") for s in (0, 20, 40, 60)]
+        s2 = [reg(s, sensor="S2", modelo="DS18B20") for s in (0, 20, 60)]
         gaps = an.detectar_gaps(s1 + s2)
         self.assertEqual([g["sensor_id"] for g in gaps], ["S2"])
 
     def test_CA3_4_ate_5_falhas_consecutivas_ainda_e_imputado(self):
-        """CA3.4: 5 falhas consecutivas (t = 30..70) ainda sao imputadas."""
-        registros = [reg(0, 20.0), reg(10, 22.0), reg(20, 24.0), reg(80, 26.0)]
+        """CA3.4: 5 falhas consecutivas (t = 60..140) ainda sao imputadas."""
+        registros = [reg(0, 20.0), reg(20, 22.0), reg(40, 24.0), reg(160, 26.0)]
         res = an.imputar_ausentes(registros)
         self.assertEqual(len(imputados(res)), 5)
         self.assertEqual(res["alertas"], [])
 
     def test_CA3_4_mais_de_5_falhas_suspende_imputacao_e_alerta(self):
-        """CA3.4: 6 falhas consecutivas (t = 30..80): nada e imputado e gera
+        """CA3.4: 6 falhas consecutivas (t = 60..160): nada e imputado e gera
         o alerta 'Sensor Inoperante'."""
-        registros = [reg(0, 20.0), reg(10, 22.0), reg(20, 24.0), reg(90, 26.0)]
+        registros = [reg(0, 20.0), reg(20, 22.0), reg(40, 24.0), reg(180, 26.0)]
         res = an.imputar_ausentes(registros)
         self.assertEqual(imputados(res), [])
         self.assertEqual(len(res["registros"]), 4)
@@ -215,19 +220,19 @@ class TestHU3GapsEImputacao(unittest.TestCase):
 
     def test_CA3_4_sensor_inoperante_nao_bloqueia_outros_sensores(self):
         """CA3.4: S1 inoperante nao impede imputar um ausente isolado em S2."""
-        s1 = [reg(0, sensor="S1"), reg(10, sensor="S1"), reg(90, sensor="S1")]
-        s2 = [reg(0, 20.0, sensor="S2"), reg(10, 22.0, sensor="S2"),
-              reg(20, 24.0, sensor="S2"), reg(40, 26.0, sensor="S2")]
+        s1 = [reg(0, sensor="S1"), reg(20, sensor="S1"), reg(180, sensor="S1")]
+        s2 = [reg(0, 20.0, sensor="S2"), reg(20, 22.0, sensor="S2"),
+              reg(40, 24.0, sensor="S2"), reg(80, 26.0, sensor="S2")]
         res = an.imputar_ausentes(s1 + s2)
         self.assertEqual([i["sensor_id"] for i in imputados(res)], ["S2"])
         self.assertEqual([a["sensor_id"] for a in res["alertas"]], ["S1"])
 
     def test_CA3_1_limite_do_gap(self):
-        """CA3.1: apenas diferencas superiores a 15 segundos geram gap."""
-        for segundos in (10, 15, 16):
+        """CA3.1: apenas diferencas superiores a 30 segundos geram gap."""
+        for segundos in (20, 30, 31):
             with self.subTest(segundos=segundos):
                 gaps = an.detectar_gaps([reg(0), reg(segundos)])
-                self.assertEqual(len(gaps), int(segundos > 15))
+                self.assertEqual(len(gaps), int(segundos > 30))
                 if gaps:
                     self.assertEqual(gaps[0]["inicio"], ts(0))
                     self.assertEqual(gaps[0]["fim"], ts(segundos))
@@ -235,14 +240,14 @@ class TestHU3GapsEImputacao(unittest.TestCase):
 
     def test_CA3_2_CA3_3_media_valida_e_marcacao(self):
         """CA3.2/CA3.3: usa as 3 ultimas validas e marca so o sintetico."""
-        registros = [reg(0, 100.0, 90.0), reg(10, 20.0, 50.0),
-                     reg(20, None, None), reg(30, 22.0, 60.0),
-                     reg(40, 27.0, 70.0), reg(60, 30.0, 80.0)]
+        registros = [reg(0, 100.0, 90.0), reg(20, 20.0, 50.0),
+                     reg(40, None, None), reg(60, 22.0, 60.0),
+                     reg(80, 27.0, 70.0), reg(120, 30.0, 80.0)]
         resultado = an.imputar_ausentes(registros)
         sinteticos = imputados(resultado)
         self.assertEqual(len(sinteticos), 1)
         novo = sinteticos[0]
-        self.assertEqual(novo["timestamp"], ts(50))
+        self.assertEqual(novo["timestamp"], ts(100))
         self.assertAlmostEqual(novo["temperatura"], (20.0 + 22.0 + 27.0) / 3)
         self.assertAlmostEqual(novo["umidade"], 60.0)
         self.assertEqual((novo["sensor_id"], novo["modelo"]), ("S1", "DHT22"))
@@ -425,16 +430,16 @@ class TestHU4Relatorio(unittest.TestCase):
 
     def test_CA4_2_integracao_com_trechos_e_marcacoes_da_HU2(self):
         """CA4.2/CA4.4: consome os trechos reais da HU2 sem reanalisa-los."""
-        registros = serie([25.0] * 10)
+        registros = serie([25.0] * 20)
         for registro in registros:
             registro["status_estatistico"] = dict.fromkeys(an.VARIAVEIS, "Normal")
         rel = an.gerar_relatorio(an.marcar_suspeitas(registros),
                                  trechos=an.detectar_trechos_constantes(registros))
         
         self.assertEqual(rel["registros_sinalizados_percentual"], 100.0)
-        self.assertEqual(rel["contagem"]["Normal"], 10)
+        self.assertEqual(rel["contagem"]["Normal"], 20)
         self.assertEqual(rel["contagem"]["trechos_suspeitos"], 1)
-        self.assertEqual(rel["trechos"], [trecho()])
+        self.assertEqual(rel["trechos"], [trecho(quantidade=20)])
 
     def test_CA4_3_identificacao_invalida_nao_mistura_sensores(self):
         """CA4.3: rejeita ID ausente e modelos conflitantes para o mesmo sensor."""
