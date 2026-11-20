@@ -51,7 +51,7 @@ Como estudante de IoT, quero identificar leituras fora do padrão usando os test
 #### Critérios de aceitação
 
 1. **CA1.1:** No teste dos Quartis, calcular Q1, Q3 e a amplitude interquartil (Ai = Q3 - Q1) a partir de todos os valores da variável analisada. Marcar cada valor abaixo de Q1 - 2 × Ai ou acima de Q3 + 2 × Ai como outlier; a análise não se limita à última amostra.
-2. **CA1.2:** Calcular G = |leitura - média| / desvio padrão na mesma janela. Se G > 2,58, marcar a leitura como `Outlier` pelo teste de Grubbs.
+2. **CA1.2:** Calcular G = |leitura - média| / desvio padrão na mesma janela. Comparar G com o limite crítico de Grubbs calculado para o tamanho da janela (α = 0,05) e marcar a leitura como `Outlier` quando esse limite for ultrapassado.
 3. **CA1.3:** Se nenhum dos dois testes apontar problema, classificar a leitura como `Normal`. Ela ainda pode receber suspeita de travamento pela HU2.
 4. **CA1.4:** Se o desvio padrão for zero, o teste de Grubbs não deve dividir por zero nem apontar outlier. As outras análises continuam normalmente.
 
@@ -124,8 +124,8 @@ flowchart TD
 ### HU1: detecção de outliers
 
 Os testes dos Quartis e de Grubbs avaliam temperatura e umidade separadamente.
-Quartis usa os limites Q1 − 2 × Ai e Q3 + 2 × Ai. Grubbs sinaliza quando
-G > 2,58 e não aponta outlier quando o desvio padrão é zero.
+Quartis usa os limites Q1 − 2 × Ai e Q3 + 2 × Ai. Grubbs usa o limite crítico
+calculado para o tamanho da janela e não aponta outlier quando o desvio padrão é zero.
 
 ### HU2: suspeita de travamento
 
@@ -181,7 +181,16 @@ A saída serializa os dados em JSON, considerando os registros e eventos no form
 
 ### Validação
 
-Para rodar os 31 testes das quatro histórias:
+Para executar a análise completa e salvar o relatório JSON, rode:
+
+```bash
+python analisador.py DHT22.csv ambos saida
+```
+
+O argumento `metodo` aceita `quartis`, `grubbs` ou `ambos`. A pasta indicada
+recebe o relatório JSON, o CSV original com as marcações e os CSVs de cada método.
+
+Para rodar os 30 testes das quatro histórias:
 
 ```bash
 python -m unittest -v test_analisador

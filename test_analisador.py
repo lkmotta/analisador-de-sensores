@@ -78,7 +78,7 @@ def trecho(sensor="S1", modelo="DHT22", variavel="temperatura", quantidade=10,
 class TestHU1Outliers(unittest.TestCase):
 
     def test_CA1_2_status_outlier_pelo_grubbs(self):
-        """CA1.2: valor aceito pelos Quartis mas com G > 2,58 vira 'Outlier'."""
+        """CA1.2: valor aceito pelos Quartis mas rejeitado por Grubbs."""
         janela = [-10.0 + i for i in range(20)] + [25.0]
         self.assertFalse(an.outlier_quartis(janela))
         self.assertTrue(an.outlier_grubbs(janela))

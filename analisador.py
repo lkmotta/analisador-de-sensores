@@ -31,6 +31,7 @@ Trecho constante suspeito (dict) (campos do CA2.4):
 
 import copy
 import csv
+import json
 import math
 import os
 import sys
@@ -206,7 +207,7 @@ def detectar_trechos_constantes(registros,
     - Considera so registros originais (status != "Imputado") com valor valido.
     - Sequencia = valores exatamente iguais; a 1a leitura conta como amostra.
     - Com >= min_leituras, gera UM trecho (repeticoes seguintes o ampliam).
-    - A sequencia termina: valor muda, gap (> 20 s entre originais), valor
+    - A sequencia termina: valor muda, gap (> 30 s entre originais), valor
       ausente/invalido ou fim dos dados.
     """
     if min_leituras < 1:
@@ -446,6 +447,9 @@ def analisar_registros(registros, metodo="ambos"):
                 foi_outlier = any(
                     resultado["marcacoes"][indice]
                     for resultado in resultados.values()
+                )
+                registro.setdefault("status_estatistico", {})[variavel] = (
+                    OUTLIER if foi_outlier else NORMAL
                 )
                 registro["outlier"] |= int(foi_outlier)
 
@@ -783,19 +787,37 @@ def main():
 
     try:
         registros = importar_dados_csv(arquivo_csv)
+        for linha, registro in enumerate(registros, start=2):
+            registro["id"] = registro.get("id") or str(linha)
+            registro["modelo"] = registro.get("modelo") or registro["sensor_id"]
+
         pasta_saida.mkdir(parents=True, exist_ok=True)
         with chdir(pasta_saida):
             analisar_registros(registros, metodo)
+            trechos = detectar_trechos_constantes(registros)
+            registros = marcar_suspeitas(registros)
+            gaps = detectar_gaps(registros)
+            resultado = imputar_ausentes(registros)
+            relatorio = gerar_relatorio(resultado["registros"], trechos, gaps)
+            relatorio["alertas"] = resultado["alertas"]
 
-        arquivo_saida = pasta_saida / f"{arquivo_csv.stem}_analisado.csv"
-        campos = list(dict.fromkeys(
-            campo for registro in registros for campo in registro
-        ))
-        with arquivo_saida.open("w", newline="", encoding="utf-8") as arquivo:
-            escritor = csv.DictWriter(arquivo, fieldnames=campos)
-            escritor.writeheader()
-            escritor.writerows(registros)
-        print(f"Arquivo com os resultados: {arquivo_saida}")
+            arquivo_csv_saida = pasta_saida / f"{arquivo_csv.stem}_analisado.csv"
+            campos = list(dict.fromkeys(
+                campo for registro in registros for campo in registro
+            ))
+            with arquivo_csv_saida.open("w", newline="", encoding="utf-8") as arquivo:
+                escritor = csv.DictWriter(arquivo, fieldnames=campos)
+                escritor.writeheader()
+                escritor.writerows(registros)
+
+            arquivo_json_saida = pasta_saida / f"{arquivo_csv.stem}_relatorio.json"
+            with arquivo_json_saida.open("w", encoding="utf-8") as arquivo:
+                json.dump(relatorio, arquivo, ensure_ascii=False, indent=2,
+                          allow_nan=False)
+                arquivo.write("\n")
+
+        print(f"Relatorio JSON salvo em: {arquivo_json_saida}")
+        print(f"CSV analisado salvo em: {arquivo_csv_saida}")
     except (OSError, ValueError) as erro:
         print(f"Erro: {erro}")
         return 1
