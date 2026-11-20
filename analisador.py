@@ -773,20 +773,14 @@ def Limiar_grubbs(N, alfa=0.05):
     return limiar
 
 
-def main():
-    if len(sys.argv) != 4:
-        print("Uso: python analisador.py arquivo_dados.csv metodo saida")
-        return 2
+class AnalisadorFacade:
+    """Coordena as etapas do analisador e salva os arquivos de saída."""
 
-    arquivo_csv = Path(sys.argv[1]).resolve()
-    metodo = sys.argv[2].lower()
-    pasta_saida = Path(sys.argv[3]).resolve()
-    if metodo not in ("quartis", "grubbs", "ambos"):
-        print("Metodo deve ser quartis, grubbs ou ambos.")
-        return 2
-
-    try:
+    def executar(self, arquivo_csv, metodo, pasta_saida):
+        arquivo_csv = Path(arquivo_csv).resolve()
+        pasta_saida = Path(pasta_saida).resolve()
         registros = importar_dados_csv(arquivo_csv)
+
         for linha, registro in enumerate(registros, start=2):
             registro["id"] = registro.get("id") or str(linha)
             registro["modelo"] = registro.get("modelo") or registro["sensor_id"]
@@ -801,23 +795,41 @@ def main():
             relatorio = gerar_relatorio(resultado["registros"], trechos, gaps)
             relatorio["alertas"] = resultado["alertas"]
 
-            arquivo_csv_saida = pasta_saida / f"{arquivo_csv.stem}_analisado.csv"
-            campos = list(dict.fromkeys(
-                campo for registro in registros for campo in registro
-            ))
-            with arquivo_csv_saida.open("w", newline="", encoding="utf-8") as arquivo:
-                escritor = csv.DictWriter(arquivo, fieldnames=campos)
-                escritor.writeheader()
-                escritor.writerows(registros)
+        arquivo_csv_saida = pasta_saida / f"{arquivo_csv.stem}_analisado.csv"
+        campos = list(dict.fromkeys(
+            campo for registro in registros for campo in registro
+        ))
+        with arquivo_csv_saida.open("w", newline="", encoding="utf-8") as arquivo:
+            escritor = csv.DictWriter(arquivo, fieldnames=campos)
+            escritor.writeheader()
+            escritor.writerows(registros)
 
-            arquivo_json_saida = pasta_saida / f"{arquivo_csv.stem}_relatorio.json"
-            with arquivo_json_saida.open("w", encoding="utf-8") as arquivo:
-                json.dump(relatorio, arquivo, ensure_ascii=False, indent=2,
-                          allow_nan=False)
-                arquivo.write("\n")
+        arquivo_json_saida = pasta_saida / f"{arquivo_csv.stem}_relatorio.json"
+        arquivo_json_saida.write_text(
+            json.dumps(relatorio, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        return arquivo_csv_saida, arquivo_json_saida
 
-        print(f"Relatorio JSON salvo em: {arquivo_json_saida}")
-        print(f"CSV analisado salvo em: {arquivo_csv_saida}")
+
+def main():
+    argumentos = sys.argv[1:]
+    if len(argumentos) != 3:
+        print("Uso: python analisador.py arquivo_dados.csv metodo saida")
+        return 2
+
+    arquivo_csv, metodo, pasta_saida = argumentos
+    metodo = metodo.lower()
+    if metodo not in ("quartis", "grubbs", "ambos"):
+        print("Metodo deve ser quartis, grubbs ou ambos.")
+        return 2
+
+    try:
+        csv_saida, json_saida = AnalisadorFacade().executar(
+            arquivo_csv, metodo, pasta_saida
+        )
+        print(f"Relatorio JSON salvo em: {json_saida}")
+        print(f"CSV analisado salvo em: {csv_saida}")
     except (OSError, ValueError) as erro:
         print(f"Erro: {erro}")
         return 1
@@ -827,5 +839,7 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
 
 
