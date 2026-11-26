@@ -297,36 +297,14 @@ Esse método utiliza o `AdaptadorCSV` para carregar os registros e depois chama 
 
 Ao final, o Facade salva os resultados em arquivos CSV e JSON.
 
-Escolhemos esse padrão para simplificar a execução do programa e manter as etapas organizadas. Assim, a função `main()` precisa chamar apenas `AnalisadorFacade().executar()`, sem ter que executar separadamente todas as funções de análise.
-
-Isso também facilita futuras alterações, já que podemos modificar uma etapa do processamento sem precisar mudar a forma como o programa principal inicia a análise.
 
 #### Diagrama do Facade
 
 ```mermaid
-classDiagram
-    direction TB
-
-    class AnalisadorFacade {
-        +executar(arquivo_csv, metodo, pasta_saida)
-    }
-
-    class FonteLeituras {
-        <<abstract>>
-        +carregar()*
-    }
-
-    class AdaptadorCSV {
-        -caminho
-        +carregar()
-    }
-
-    FonteLeituras <|-- AdaptadorCSV
-    AnalisadorFacade ..> FonteLeituras : utiliza
-
-    note for AnalisadorFacade "Coordena as analises das HU1, HU2, HU3 e HU4"
+flowchart TD
+    HU1["HU1 · Outliers"] --> F["AnalisadorFacade.executar()"]
+    HU2["HU2 · Trechos constantes"] --> F
+    HU3["HU3 · Gaps e imputações"] --> F
+    HU4["HU4 · Relatório de qualidade"] --> F
+    F -->|Caminhos do CSV e do JSON| M["main()"]
 ```
-
-O diagrama mostra a classe `AnalisadorFacade` utilizando a interface `FonteLeituras`, implementada por `AdaptadorCSV`, para carregar os registros antes das análises.
-
-As funcionalidades das HUs não aparecem como classes separadas porque são funções do módulo `analisador.py`.
