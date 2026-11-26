@@ -281,3 +281,52 @@ classDiagram
 **Classes reais:** `FonteLeituras`, `AdaptadorCSV` e `AnalisadorFacade` estão
 no módulo `analisador.py`. A função `importar_dados_csv()` também está nesse
 módulo e é reutilizada pelo adaptador.
+
+### Facade no processamento dos dados
+
+O padrão **Facade** foi utilizado para reunir as etapas de análise dos sensores em um único lugar.
+
+No `analisador.py`, a classe `AnalisadorFacade` possui o método `executar()`, que recebe o caminho do arquivo CSV, o método de detecção de outliers e a pasta onde os resultados serão salvos.
+
+Esse método utiliza o `AdaptadorCSV` para carregar os registros e depois chama as funções responsáveis pelas quatro histórias de usuário:
+
+- **HU1:** `analisar_registros()` identifica os outliers.
+- **HU2:** `detectar_trechos_constantes()` e `marcar_suspeitas()` identificam e sinalizam possíveis travamentos.
+- **HU3:** `detectar_gaps()` e `imputar_ausentes()` identificam os gaps e preenchem as leituras ausentes quando permitido.
+- **HU4:** `gerar_relatorio()` reúne os resultados das análises.
+
+Ao final, o Facade salva os resultados em arquivos CSV e JSON.
+
+Escolhemos esse padrão para simplificar a execução do programa e manter as etapas organizadas. Assim, a função `main()` precisa chamar apenas `AnalisadorFacade().executar()`, sem ter que executar separadamente todas as funções de análise.
+
+Isso também facilita futuras alterações, já que podemos modificar uma etapa do processamento sem precisar mudar a forma como o programa principal inicia a análise.
+
+#### Diagrama do Facade
+
+```mermaid
+classDiagram
+    direction TB
+
+    class AnalisadorFacade {
+        +executar(arquivo_csv, metodo, pasta_saida)
+    }
+
+    class FonteLeituras {
+        <<abstract>>
+        +carregar()*
+    }
+
+    class AdaptadorCSV {
+        -caminho
+        +carregar()
+    }
+
+    FonteLeituras <|-- AdaptadorCSV
+    AnalisadorFacade ..> FonteLeituras : utiliza
+
+    note for AnalisadorFacade "Coordena as analises das HU1, HU2, HU3 e HU4"
+```
+
+O diagrama mostra a classe `AnalisadorFacade` utilizando a interface `FonteLeituras`, implementada por `AdaptadorCSV`, para carregar os registros antes das análises.
+
+As funcionalidades das HUs não aparecem como classes separadas porque são funções do módulo `analisador.py`.
