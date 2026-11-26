@@ -241,3 +241,43 @@ classDiagram
     EstrategiaOutliers <|-- EstrategiaGrubbs
     note for EstrategiaOutliers "analisar_outliers() chama calcular(valores)"
 ```
+
+
+### Adapter na leitura do CSV
+
+Alguns arquivos de sensores usam `hora` ou `Carimbo de data/hora`, mas as
+funções do analisador também trabalham com o campo `timestamp`.
+
+Para resolver essa diferença, adicionamos o padrão **Adapter**. A classe
+`AdaptadorCSV` chama a função `importar_dados_csv()`, que já existia, e
+preenche o campo `timestamp` usando o horário disponível. As colunas
+originais continuam no registro.
+
+A interface `FonteLeituras` define o método `carregar()`. Com isso, o
+`AnalisadorFacade` não precisa fazer a conversão dos nomes das colunas.
+A vantagem é que, se precisarmos usar outra fonte de leituras no futuro,
+podemos criar outro adaptador sem alterar as funções das HUs.
+
+#### Diagrama do Adapter
+
+```mermaid
+classDiagram
+    class FonteLeituras {
+        <<abstract>>
+        +carregar()*
+    }
+    class AdaptadorCSV {
+        -caminho
+        +carregar()
+    }
+    class AnalisadorFacade {
+        +executar(arquivo_csv, metodo, pasta_saida)
+    }
+    FonteLeituras <|-- AdaptadorCSV
+    AnalisadorFacade ..> FonteLeituras : usa
+    note for AdaptadorCSV "carregar() chama importar_dados_csv()"
+```
+
+**Classes reais:** `FonteLeituras`, `AdaptadorCSV` e `AnalisadorFacade` estão
+no módulo `analisador.py`. A função `importar_dados_csv()` também está nesse
+módulo e é reutilizada pelo adaptador.

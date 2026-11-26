@@ -791,13 +791,42 @@ def Limiar_grubbs(N, alfa=0.05):
     return limiar
 
 
+class FonteLeituras(ABC):
+    """Define como uma fonte entrega os registros ao programa."""
+
+    @abstractmethod
+    def carregar(self):
+        pass
+
+
+class AdaptadorCSV(FonteLeituras):
+    """Aproveita o importador existente e padroniza a coluna de horario."""
+
+    def __init__(self, caminho):
+        self.caminho = caminho
+
+    def carregar(self):
+        registros = importar_dados_csv(self.caminho)
+
+        for registro in registros:
+            # verifica se o horario esta salvo com outro nome
+            if not registro.get("timestamp"):
+                horario = registro.get("hora") or registro.get("Carimbo de data/hora")
+                # se encontrar, copia para o campo timestamp
+                if horario:
+                    registro["timestamp"] = horario
+
+        return registros
+
+
 class AnalisadorFacade:
     """Coordena as etapas do analisador e salva os arquivos de saída."""
 
     def executar(self, arquivo_csv, metodo, pasta_saida):
         arquivo_csv = Path(arquivo_csv).resolve()
         pasta_saida = Path(pasta_saida).resolve()
-        registros = importar_dados_csv(arquivo_csv)
+        fonte: FonteLeituras = AdaptadorCSV(arquivo_csv) # usando o adaptador para carregar os dados do arquivo
+        registros = fonte.carregar()
 
         for linha, registro in enumerate(registros, start=2):
             registro["id"] = registro.get("id") or str(linha)
