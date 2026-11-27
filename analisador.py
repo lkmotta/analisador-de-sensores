@@ -825,13 +825,16 @@ class AnalisadorFacade:
     def executar(self, arquivo_csv, metodo, pasta_saida):
         arquivo_csv = Path(arquivo_csv).resolve()
         pasta_saida = Path(pasta_saida).resolve()
-        fonte: FonteLeituras = AdaptadorCSV(arquivo_csv) # usando o adaptador para carregar os dados do arquivo
+        # adaptador
+        fonte: FonteLeituras = AdaptadorCSV(arquivo_csv)
         registros = fonte.carregar()
+
 
         for linha, registro in enumerate(registros, start=2):
             registro["id"] = registro.get("id") or str(linha)
             registro["modelo"] = registro.get("modelo") or registro["sensor_id"]
 
+        
         pasta_saida.mkdir(parents=True, exist_ok=True)
         with chdir(pasta_saida):
             analisar_registros(registros, metodo)
@@ -842,6 +845,7 @@ class AnalisadorFacade:
             relatorio = gerar_relatorio(resultado["registros"], trechos, gaps)
             relatorio["alertas"] = resultado["alertas"]
 
+        #exportando
         arquivo_csv_saida = pasta_saida / f"{arquivo_csv.stem}_analisado.csv"
         campos = list(dict.fromkeys(
             campo for registro in registros for campo in registro
@@ -872,16 +876,14 @@ def main():
         return 2 # erro de uso
 
     try:
-        csv_saida, json_saida = AnalisadorFacade().executar(
-            arquivo_csv, metodo, pasta_saida
-        )
+        csv_saida, json_saida = AnalisadorFacade().executar(arquivo_csv, metodo, pasta_saida)
         print(f"Relatorio JSON salvo em: {json_saida}")
         print(f"CSV analisado salvo em: {csv_saida}")
     except (OSError, ValueError) as erro:
         print(f"Erro: {erro}")
-        return 1 # erro de execução
+        return 1
 
-    return 0 # deu bom
+    return 0
 
 
 if __name__ == "__main__":

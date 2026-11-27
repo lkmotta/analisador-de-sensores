@@ -301,10 +301,28 @@ Ao final, o Facade salva os resultados em arquivos CSV e JSON.
 #### Diagrama do Facade
 
 ```mermaid
-flowchart TD
-    HU1["HU1 · Outliers"] --> F["AnalisadorFacade.executar()"]
-    HU2["HU2 · Trechos constantes"] --> F
-    HU3["HU3 · Gaps e imputações"] --> F
-    HU4["HU4 · Relatório de qualidade"] --> F
-    F -->|Caminhos do CSV e do JSON| M["main()"]
+classDiagram
+    direction TB
+    class Cliente["main()"] {
+        <<function>>
+    }
+    class AnalisadorFacade {
+        <<facade>>
+        +executar(arquivo_csv, metodo, pasta_saida)
+    }
+    class AdaptadorCSV {
+        +carregar()
+    }
+    class Analises["analisador.py"] {
+        <<module>>
+        analisar_registros()
+        detectar_trechos_constantes()
+        marcar_suspeitas()
+        detectar_gaps()
+        imputar_ausentes()
+        gerar_relatorio()
+    }
+    Cliente ..> AnalisadorFacade : usa
+    AnalisadorFacade ..> AdaptadorCSV : cria
+    AnalisadorFacade ..> Analises : usa funções das HU1 a HU4
 ```
